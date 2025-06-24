@@ -1,5 +1,5 @@
 {
-  "name": "movie-rec-mcp",
+  "name": "mediasage",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -13,7 +13,7 @@
     "start:simple-http": "bun run simple-http-mcp.ts"
   },
   "bin": {
-    "movie-rec-mcp": "./index.ts"
+    "mediasage": "./index.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

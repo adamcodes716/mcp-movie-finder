@@ -1,4 +1,4 @@
-# Media Recommendation MCP Server
+# MediaSage
 
 A Model Context Protocol (MCP) server that tracks movies, books, and TV shows, providing intelligent recommendations based on your preferences. Built with Bun, SQLite (via Drizzle ORM), and supports both local (stdio) and remote (HTTP/SSE) connections.
 
@@ -18,7 +18,7 @@ A Model Context Protocol (MCP) server that tracks movies, books, and TV shows, p
 ```bash
 # Clone the repository
 git clone <your-repo-url>
-cd movie-rec-mcp
+cd mediasage
 
 # Install dependencies
 bun install
@@ -180,9 +180,9 @@ Add to your Claude Desktop configuration:
 ```json
 {
   "mcpServers": {
-    "movie-rec": {
+    "mediasage": {
       "command": "bun",
-      "args": ["run", "/path/to/movie-rec-mcp/index.ts"]
+      "args": ["run", "/path/to/mediasage/index.ts"]
     }
   }
 }

@@ -23,7 +23,7 @@ const tvService = new TVMetadataService();
 // Create MCP server
 const server = new Server(
   {
-    name: "media-recommendation-server",
+    name: "mediasage",
     version: "1.0.0",
   },
   {
