@@ -1,6 +1,14 @@
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { Database } from 'bun:sqlite';
-import { movies, type Movie, type NewMovie } from './schema';
+import { 
+  media, movies, books, tvShows,
+  mediaRelations, movieRelations, bookRelations, tvShowRelations,
+  type Media, type NewMedia,
+  type Movie, type NewMovie,
+  type Book, type NewBook,
+  type TVShow, type NewTVShow,
+  type MediaWithMovie, type MediaWithBook, type MediaWithTVShow
+} from './schema';
 import { eq, and, gte, desc, asc, like, sql } from 'drizzle-orm';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -9,13 +17,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Create SQLite database instance
-const sqlite = new Database(join(dirname(__dirname), '..', 'movies.db'));
-export const db = drizzle(sqlite);
+const sqlite = new Database(join(dirname(__dirname), '..', 'media.db'));
 
-// Create tables if they don't exist - Updated schema
+// Create database with schema and relations
+export const db = drizzle(sqlite, {
+  schema: {
+    media,
+    movies,
+    books,
+    tvShows,
+    mediaRelations,
+    movieRelations,
+    bookRelations,
+    tvShowRelations,
+  },
+});
+
+// Create tables if they don't exist - Updated schema for multi-media support
 sqlite.run(`
-  CREATE TABLE IF NOT EXISTS movies (
+  CREATE TABLE IF NOT EXISTS media (
     id TEXT PRIMARY KEY,
+    type TEXT NOT NULL CHECK(type IN ('movie', 'book', 'tv_show')),
     title TEXT NOT NULL,
     year INTEGER,
     watched INTEGER NOT NULL DEFAULT 0,
@@ -23,22 +45,13 @@ sqlite.run(`
     date_watched TEXT,
     notes TEXT,
     
-    -- Metadata fields
-    imdb_id TEXT,
-    tmdb_id INTEGER,
+    -- Common metadata fields
     genres TEXT,
-    director TEXT,
-    cast TEXT,
     plot TEXT,
-    runtime INTEGER,
     language TEXT,
     country TEXT,
-    imdb_rating REAL,
-    rotten_tomatoes_rating INTEGER,
     poster_url TEXT,
     release_date TEXT,
-    budget INTEGER,
-    box_office INTEGER,
     keywords TEXT,
     
     -- User preference analysis
@@ -49,205 +62,345 @@ sqlite.run(`
   )
 `);
 
-export class MovieDatabase {
-  async addMovie(movie: NewMovie): Promise<void> {
-    await db.insert(movies).values(movie);
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS movies (
+    media_id TEXT PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
+    director TEXT,
+    cast TEXT,
+    runtime INTEGER,
+    imdb_id TEXT,
+    tmdb_id INTEGER,
+    imdb_rating REAL,
+    rotten_tomatoes_rating INTEGER,
+    budget INTEGER,
+    box_office INTEGER
+  )
+`);
+
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS books (
+    media_id TEXT PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
+    author TEXT,
+    isbn TEXT,
+    pages INTEGER,
+    publisher TEXT,
+    google_books_id TEXT,
+    goodreads_rating REAL,
+    average_rating REAL,
+    ratings_count INTEGER
+  )
+`);
+
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS tv_shows (
+    media_id TEXT PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
+    creator TEXT,
+    cast TEXT,
+    seasons INTEGER,
+    episodes INTEGER,
+    episode_runtime INTEGER,
+    network TEXT,
+    status TEXT,
+    tmdb_id INTEGER,
+    imdb_id TEXT,
+    imdb_rating REAL,
+    first_air_date TEXT,
+    last_air_date TEXT
+  )
+`);
+
+export class MediaDatabase {
+  // Generic media operations
+  async addMedia(mediaData: NewMedia, specificData?: NewMovie | NewBook | NewTVShow): Promise<void> {
+    await db.transaction(async (tx) => {
+      // Insert into media table
+      await tx.insert(media).values(mediaData);
+      
+      // Insert into specific table based on type
+      if (specificData) {
+        switch (mediaData.type) {
+          case 'movie':
+            await tx.insert(movies).values({ 
+              mediaId: mediaData.id, 
+              ...(specificData as NewMovie) 
+            });
+            break;
+          case 'book':
+            await tx.insert(books).values({ 
+              mediaId: mediaData.id, 
+              ...(specificData as NewBook) 
+            });
+            break;
+          case 'tv_show':
+            await tx.insert(tvShows).values({ 
+              mediaId: mediaData.id, 
+              ...(specificData as NewTVShow) 
+            });
+            break;
+        }
+      }
+    });
   }
 
+  async getMedia(filters?: { 
+    type?: 'movie' | 'book' | 'tv_show';
+    watchedOnly?: boolean; 
+    minRating?: number;
+    genre?: string;
+    director?: string;
+    author?: string;
+    year?: number;
+  }): Promise<(MediaWithMovie | MediaWithBook | MediaWithTVShow)[]> {
+    const conditions = [];
+    
+    if (filters?.type) {
+      conditions.push(eq(media.type, filters.type));
+    }
+    
+    if (filters?.watchedOnly) {
+      conditions.push(eq(media.watched, true));
+    }
+    
+    if (filters?.minRating) {
+      conditions.push(gte(media.rating, filters.minRating));
+    }
+
+    if (filters?.genre) {
+      conditions.push(like(media.genres, `%${filters.genre}%`));
+    }
+
+    if (filters?.year) {
+      conditions.push(eq(media.year, filters.year));
+    }
+    
+    const query = db.query.media.findMany({
+      where: conditions.length > 0 ? and(...conditions) : undefined,
+      with: {
+        movie: true,
+        book: true,
+        tvShow: true,
+      },
+      orderBy: [desc(media.dateWatched), asc(media.title)],
+    });
+    
+    return query as Promise<(MediaWithMovie | MediaWithBook | MediaWithTVShow)[]>;
+  }
+
+  async getMediaById(id: string): Promise<MediaWithMovie | MediaWithBook | MediaWithTVShow | null> {
+    const result = await db.query.media.findFirst({
+      where: eq(media.id, id),
+      with: {
+        movie: true,
+        book: true,
+        tvShow: true,
+      },
+    });
+    
+    return result as (MediaWithMovie | MediaWithBook | MediaWithTVShow) || null;
+  }
+
+  async findMediaByTitle(title: string, type?: 'movie' | 'book' | 'tv_show', year?: number): Promise<Media | null> {
+    const conditions = [eq(media.title, title)];
+    
+    if (type) {
+      conditions.push(eq(media.type, type));
+    }
+    
+    if (year) {
+      conditions.push(eq(media.year, year));
+    }
+    
+    const results = await db.select()
+      .from(media)
+      .where(and(...conditions))
+      .limit(1);
+      
+    return results[0] || null;
+  }
+
+  async updateMedia(id: string, updates: Partial<Media>, specificUpdates?: Partial<Movie | Book | TVShow>): Promise<boolean> {
+    const mediaItem = await this.getMediaById(id);
+    if (!mediaItem) return false;
+
+    await db.transaction(async (tx) => {
+      // Update media table
+      const mediaUpdateData: any = {};
+      Object.keys(updates).forEach(key => {
+        if (updates[key as keyof Media] !== undefined) {
+          mediaUpdateData[key] = updates[key as keyof Media];
+        }
+      });
+      
+      if (updates.watched && !mediaItem.dateWatched) {
+        mediaUpdateData.dateWatched = new Date().toISOString();
+      }
+      
+      if (Object.keys(mediaUpdateData).length > 0) {
+        await tx.update(media)
+          .set(mediaUpdateData)
+          .where(eq(media.id, id));
+      }
+
+      // Update specific table if provided
+      if (specificUpdates && Object.keys(specificUpdates).length > 0) {
+        switch (mediaItem.type) {
+          case 'movie':
+            await tx.update(movies)
+              .set(specificUpdates as Partial<Movie>)
+              .where(eq(movies.mediaId, id));
+            break;
+          case 'book':
+            await tx.update(books)
+              .set(specificUpdates as Partial<Book>)
+              .where(eq(books.mediaId, id));
+            break;
+          case 'tv_show':
+            await tx.update(tvShows)
+              .set(specificUpdates as Partial<TVShow>)
+              .where(eq(tvShows.mediaId, id));
+            break;
+        }
+      }
+    });
+    
+    return true;
+  }
+
+  // Convenience methods for specific media types
   async getMovies(filters?: { 
     watchedOnly?: boolean; 
     minRating?: number;
     genre?: string;
     director?: string;
     year?: number;
-  }): Promise<Movie[]> {
-    let query = db.select().from(movies);
-    
-    const conditions = [];
-    
-    if (filters?.watchedOnly) {
-      conditions.push(eq(movies.watched, true));
-    }
-    
-    if (filters?.minRating) {
-      conditions.push(gte(movies.rating, filters.minRating));
-    }
-
-    if (filters?.genre) {
-      conditions.push(like(movies.genres, `%${filters.genre}%`));
-    }
-
-    if (filters?.director) {
-      conditions.push(like(movies.director, `%${filters.director}%`));
-    }
-
-    if (filters?.year) {
-      conditions.push(eq(movies.year, filters.year));
-    }
-    
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
-    }
-    
-    return query.orderBy(desc(movies.dateWatched), asc(movies.title));
+  }): Promise<MediaWithMovie[]> {
+    const results = await this.getMedia({ ...filters, type: 'movie' });
+    return results.filter(item => item.type === 'movie') as MediaWithMovie[];
   }
 
-  async getMovie(id: string): Promise<Movie | null> {
-    const results = await db.select()
-      .from(movies)
-      .where(eq(movies.id, id))
-      .limit(1);
-    
-    return results[0] || null;
+  async getBooks(filters?: { 
+    watchedOnly?: boolean; 
+    minRating?: number;
+    genre?: string;
+    author?: string;
+    year?: number;
+  }): Promise<MediaWithBook[]> {
+    const results = await this.getMedia({ ...filters, type: 'book' });
+    return results.filter(item => item.type === 'book') as MediaWithBook[];
   }
 
-  async findMovieByTitle(title: string, year?: number): Promise<Movie | null> {
-    let query = db.select()
-      .from(movies)
-      .where(eq(movies.title, title));
-    
-    if (year) {
-      query = query.where(and(eq(movies.title, title), eq(movies.year, year)));
-    }
-    
-    const results = await query.limit(1);
-    return results[0] || null;
+  async getTVShows(filters?: { 
+    watchedOnly?: boolean; 
+    minRating?: number;
+    genre?: string;
+    year?: number;
+  }): Promise<MediaWithTVShow[]> {
+    const results = await this.getMedia({ ...filters, type: 'tv_show' });
+    return results.filter(item => item.type === 'tv_show') as MediaWithTVShow[];
   }
 
-  async updateMovie(id: string, updates: Partial<Movie>): Promise<boolean> {
-    const movie = await this.getMovie(id);
-    if (!movie) return false;
-
-    const updateData: any = {};
-    
-    // Copy all provided updates
-    Object.keys(updates).forEach(key => {
-      if (updates[key as keyof Movie] !== undefined) {
-        updateData[key] = updates[key as keyof Movie];
-      }
+  async getHighRatedMedia(type?: 'movie' | 'book' | 'tv_show'): Promise<(MediaWithMovie | MediaWithBook | MediaWithTVShow)[]> {
+    return this.getMedia({ 
+      type,
+      watchedOnly: true,
+      minRating: 7 
     });
-    
-    if (updates.watched && !movie.dateWatched) {
-      updateData.dateWatched = new Date().toISOString();
-    }
-    
-    if (Object.keys(updateData).length > 0) {
-      await db.update(movies)
-        .set(updateData)
-        .where(eq(movies.id, id));
-    }
-    
-    return true;
   }
 
-  async getHighRatedMovies(): Promise<Movie[]> {
-    return db.select()
-      .from(movies)
-      .where(and(
-        eq(movies.watched, true),
-        gte(movies.rating, 7)
-      ))
-      .orderBy(desc(movies.rating));
-  }
-
-  async getMoviesByGenre(genre: string): Promise<Movie[]> {
-    return db.select()
-      .from(movies)
-      .where(like(movies.genres, `%${genre}%`))
-      .orderBy(desc(movies.rating));
-  }
-
-  async getMoviesByDirector(director: string): Promise<Movie[]> {
-    return db.select()
-      .from(movies)
-      .where(like(movies.director, `%${director}%`))
-      .orderBy(desc(movies.rating));
-  }
-
-  async getPreferenceAnalysis(): Promise<{
+  async getPreferenceAnalysis(type?: 'movie' | 'book' | 'tv_show'): Promise<{
     favoriteGenres: string[];
-    favoriteDirectors: string[];
+    favoriteCreators: string[]; // directors/authors/creators
     averageRating: number;
     totalWatched: number;
     commonLikedAspects: string[];
+    mediaType?: string;
   }> {
-    const watchedMovies = await this.getMovies({ watchedOnly: true });
+    const watchedMedia = await this.getMedia({ type, watchedOnly: true });
     
-    if (watchedMovies.length === 0) {
+    if (watchedMedia.length === 0) {
       return {
         favoriteGenres: [],
-        favoriteDirectors: [],
+        favoriteCreators: [],
         averageRating: 0,
         totalWatched: 0,
-        commonLikedAspects: []
+        commonLikedAspects: [],
+        mediaType: type
       };
     }
 
-    // Calculate favorite genres
     const genreMap = new Map<string, { count: number; totalRating: number }>();
-    const directorMap = new Map<string, { count: number; totalRating: number }>();
+    const creatorMap = new Map<string, { count: number; totalRating: number }>();
     const likedAspects: string[] = [];
     
     let totalRating = 0;
-    let ratedMovies = 0;
+    let ratedItems = 0;
 
-    watchedMovies.forEach(movie => {
-      if (movie.rating) {
-        totalRating += movie.rating;
-        ratedMovies++;
+    watchedMedia.forEach(item => {
+      if (item.rating) {
+        totalRating += item.rating;
+        ratedItems++;
       }
 
       // Process genres
-      if (movie.genres) {
+      if (item.genres) {
         try {
-          const genres = JSON.parse(movie.genres);
+          const genres = JSON.parse(item.genres);
           genres.forEach((genre: string) => {
             const current = genreMap.get(genre) || { count: 0, totalRating: 0 };
             current.count++;
-            if (movie.rating) current.totalRating += movie.rating;
+            if (item.rating) current.totalRating += item.rating;
             genreMap.set(genre, current);
           });
         } catch (e) {
           // Handle non-JSON genre data
-          if (movie.genres.includes(',')) {
-            movie.genres.split(',').forEach(genre => {
+          if (item.genres.includes(',')) {
+            item.genres.split(',').forEach(genre => {
               const trimmed = genre.trim();
               const current = genreMap.get(trimmed) || { count: 0, totalRating: 0 };
               current.count++;
-              if (movie.rating) current.totalRating += movie.rating;
+              if (item.rating) current.totalRating += item.rating;
               genreMap.set(trimmed, current);
             });
           }
         }
       }
 
-      // Process directors
-      if (movie.director) {
-        const current = directorMap.get(movie.director) || { count: 0, totalRating: 0 };
+      // Process creators (director/author/creator)
+      let creator: string | undefined;
+      if (item.type === 'movie' && item.movie?.director) {
+        creator = item.movie.director;
+      } else if (item.type === 'book' && item.book?.author) {
+        creator = item.book.author;
+      } else if (item.type === 'tv_show' && item.tvShow?.creator) {
+        creator = item.tvShow.creator;
+      }
+
+      if (creator) {
+        const current = creatorMap.get(creator) || { count: 0, totalRating: 0 };
         current.count++;
-        if (movie.rating) current.totalRating += movie.rating;
-        directorMap.set(movie.director, current);
+        if (item.rating) current.totalRating += item.rating;
+        creatorMap.set(creator, current);
       }
 
       // Process liked aspects
-      if (movie.likedAspects) {
-        likedAspects.push(...movie.likedAspects.split(',').map(a => a.trim()));
+      if (item.likedAspects) {
+        likedAspects.push(...item.likedAspects.split(',').map(a => a.trim()));
       }
     });
 
     // Sort genres by average rating and frequency
     const favoriteGenres = Array.from(genreMap.entries())
-      .filter(([_, data]) => data.count >= 2) // At least 2 movies
+      .filter(([_, data]) => data.count >= 2)
       .sort((a, b) => (b[1].totalRating / b[1].count) - (a[1].totalRating / a[1].count))
       .slice(0, 5)
       .map(([genre]) => genre);
 
-    // Sort directors by rating
-    const favoriteDirectors = Array.from(directorMap.entries())
+    // Sort creators by rating
+    const favoriteCreators = Array.from(creatorMap.entries())
       .filter(([_, data]) => data.count >= 1)
       .sort((a, b) => (b[1].totalRating / b[1].count) - (a[1].totalRating / a[1].count))
       .slice(0, 5)
-      .map(([director]) => director);
+      .map(([creator]) => creator);
 
     // Get common liked aspects
     const aspectCounts = new Map<string, number>();
@@ -263,15 +416,16 @@ export class MovieDatabase {
 
     return {
       favoriteGenres,
-      favoriteDirectors,
-      averageRating: ratedMovies > 0 ? totalRating / ratedMovies : 0,
-      totalWatched: watchedMovies.length,
-      commonLikedAspects
+      favoriteCreators,
+      averageRating: ratedItems > 0 ? totalRating / ratedItems : 0,
+      totalWatched: watchedMedia.length,
+      commonLikedAspects,
+      mediaType: type
     };
   }
 
-  async getAllMovies(): Promise<Movie[]> {
-    return this.getMovies();
+  async getAllMedia(): Promise<(MediaWithMovie | MediaWithBook | MediaWithTVShow)[]> {
+    return this.getMedia();
   }
 
   close() {

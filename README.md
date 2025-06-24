@@ -1,13 +1,15 @@
-# Movie Recommendation MCP Server
+# Media Recommendation MCP Server
 
-A Model Context Protocol (MCP) server that tracks movies you've watched and provides recommendations based on your preferences. Built with Bun, SQLite (via Drizzle ORM), and supports both local (stdio) and remote (HTTP/SSE) connections.
+A Model Context Protocol (MCP) server that tracks movies, books, and TV shows, providing intelligent recommendations based on your preferences. Built with Bun, SQLite (via Drizzle ORM), and supports both local (stdio) and remote (HTTP/SSE) connections.
 
 ## Features
 
-- **Movie Tracking**: Add movies with ratings, watch status, and notes
-- **Smart Filtering**: List movies by watch status and minimum rating
-- **Recommendations**: Get movie suggestions based on your highly-rated films
-- **Persistent Storage**: SQLite database with Drizzle ORM
+- **Multi-Media Tracking**: Track movies, books, and TV shows with ratings, status, and notes
+- **Smart Filtering**: List media by type, status, rating, genre, and more
+- **Cross-Media Recommendations**: Get suggestions based on your preferences across all media types
+- **Rich Metadata**: Automatic metadata fetching from OMDB (movies), Google Books (books), and TMDB (TV shows)
+- **Preference Analysis**: Understand your favorite genres, creators, and what you typically enjoy
+- **Persistent Storage**: SQLite database with Drizzle ORM and proper relations
 - **Remote Access**: HTTP server with Server-Sent Events (SSE) support
 - **Secure**: API key authentication for remote connections
 
@@ -20,6 +22,16 @@ cd movie-rec-mcp
 
 # Install dependencies
 bun install
+
+# Set up API keys (required for metadata enrichment)
+cp .env.example .env
+# Edit .env and add your API keys:
+# - OMDB_API_KEY (required for movies): Get from http://www.omdbapi.com/apikey.aspx
+# - TMDB_API_KEY (required for TV shows): Get from https://www.themoviedb.org/settings/api
+# - GOOGLE_BOOKS_API_KEY (optional for books): Get from Google Cloud Console
+
+# Run migration if you have existing movie data
+bun run src/migrate-to-media.ts
 ```
 
 ## Usage
@@ -54,7 +66,9 @@ bun run start:http
 
 ## Available Tools
 
-### `search_and_add_movie`
+### Movie Tools
+
+#### `search_and_add_movie`
 Search for a movie and add it with auto-populated metadata from OMDB.
 
 **Parameters:**
@@ -68,7 +82,53 @@ Search for a movie and add it with auto-populated metadata from OMDB.
 - `mood`: When/why you watched it
 - `recommendationContext`: How this should influence recommendations
 
-### `add_movie_to_watchlist`
+### Book Tools
+
+#### `search_and_add_book`
+Search for a book and add it with auto-populated metadata from Google Books.
+
+**Parameters:**
+- `title` (required): Book title to search for
+- `author`: Author name (helps accuracy)
+- `read`: Whether you've read it (default: false)
+- `rating`: Your rating (1-10) if read
+- `notes`: Personal notes
+- `likedAspects`: What you liked (comma-separated)
+- `dislikedAspects`: What you didn't like
+- `mood`: When/why you read it
+- `recommendationContext`: How this should influence recommendations
+
+### TV Show Tools
+
+#### `search_and_add_tv_show`
+Search for a TV show and add it with auto-populated metadata from TMDB.
+
+**Parameters:**
+- `title` (required): TV show title to search for
+- `year`: Year first aired (helps accuracy)
+- `watched`: Whether you've watched it (default: false)
+- `rating`: Your rating (1-10) if watched
+- `notes`: Personal notes
+- `likedAspects`: What you liked (comma-separated)
+- `dislikedAspects`: What you didn't like
+- `mood`: When/why you watched it
+- `recommendationContext`: How this should influence recommendations
+
+### General Tools
+
+#### `list_media`
+List all media with advanced filtering options.
+
+**Parameters:**
+- `type`: Filter by media type ('movie', 'book', 'tv_show')
+- `watched_only`: Show only watched/read items
+- `watchlist_only`: Show only unwatched/unread items
+- `min_rating`: Minimum rating filter (1-10)
+- `genre`: Filter by genre
+- `creator`: Filter by director/author/creator
+- `year`: Filter by year
+
+#### `add_movie_to_watchlist`
 Add a movie to your watchlist (movies you want to watch).
 
 **Parameters:**
@@ -77,19 +137,8 @@ Add a movie to your watchlist (movies you want to watch).
 - `notes`: Why you want to watch it
 - `recommendationContext`: Why it was recommended
 
-### `list_movies`
-List movies with advanced filtering options.
-
-**Parameters:**
-- `watched_only`: Show only watched movies
-- `watchlist_only`: Show only unwatched movies
-- `min_rating`: Minimum rating filter (1-10)
-- `genre`: Filter by genre
-- `director`: Filter by director
-- `year`: Filter by year
-
-### `get_smart_recommendations`
-Get intelligent recommendations based on your preferences.
+#### `get_smart_recommendations`
+Get intelligent recommendations based on your preferences across all media types.
 
 **Parameters:**
 - `mood`: Current mood (e.g., 'action-packed', 'thoughtful')
@@ -97,8 +146,8 @@ Get intelligent recommendations based on your preferences.
 - `length_preference`: Preferred length (short/medium/long/any)
 - `count`: Number of recommendations (default: 5)
 
-### `mark_as_watched`
-Mark a watchlist movie as watched and rate it.
+#### `mark_as_watched`
+Mark a movie from your watchlist as watched and rate it.
 
 **Parameters:**
 - `id` (required): Movie ID
@@ -107,10 +156,10 @@ Mark a watchlist movie as watched and rate it.
 - `dislikedAspects`: What you didn't like
 - `notes`: Your thoughts
 
-### `analyze_preferences`
-Analyze your movie preferences to understand your taste.
+#### `analyze_preferences`
+Analyze your media preferences to understand your taste.
 
-### `update_movie`
+#### `update_movie`
 Update an existing movie entry.
 
 **Parameters:**
