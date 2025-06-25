@@ -399,6 +399,74 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      {
+        name: "search_media",
+        description: "Search for media by title and show results with IDs for updating",
+        inputSchema: {
+          type: "object",
+          properties: {
+            title: {
+              type: "string",
+              description: "Title to search for (partial matches allowed)",
+            },
+            type: {
+              type: "string",
+              enum: ["movie", "book", "tv_show"],
+              description: "Filter by media type",
+            },
+          },
+          required: ["title"],
+        },
+      },
+      {
+        name: "update_media_by_title",
+        description: "Update media entry by title instead of ID",
+        inputSchema: {
+          type: "object",
+          properties: {
+            title: {
+              type: "string",
+              description: "Title of the media to update",
+            },
+            type: {
+              type: "string",
+              enum: ["movie", "book", "tv_show"],
+              description: "Media type to help find the right entry",
+            },
+            year: {
+              type: "number",
+              description: "Year to help identify the correct entry if multiple matches",
+            },
+            rating: {
+              type: "number",
+              description: "New rating (1-10)",
+              minimum: 1,
+              maximum: 10,
+            },
+            watched: {
+              type: "boolean",
+              description: "Update watched/read status",
+            },
+            notes: {
+              type: "string",
+              description: "Update notes",
+            },
+            likedAspects: {
+              type: "string",
+              description: "Update liked aspects",
+            },
+            dislikedAspects: {
+              type: "string",
+              description: "Update disliked aspects",
+            },
+            mood: {
+              type: "string",
+              description: "Update mood context",
+            },
+          },
+          required: ["title"],
+        },
+      },
     ],
   };
 });
@@ -1039,6 +1107,165 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: "text",
               text: `Error listing media: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            },
+          ],
+        };
+      }
+    }
+
+    case "search_media": {
+      try {
+        const filters: any = {};
+        if (args.type) filters.type = args.type as 'movie' | 'book' | 'tv_show';
+        
+        const media = await mediaDb.getMedia(filters);
+        const searchTerm = (args.title as string).toLowerCase();
+        
+        // Simple fuzzy search - find titles that contain the search term
+        const matches = media.filter(m => 
+          m.title.toLowerCase().includes(searchTerm)
+        );
+        
+        if (matches.length === 0) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `No media found matching "${args.title}". Try a different search term.`,
+              },
+            ],
+          };
+        }
+
+        const searchResults = matches.map(m => {
+          const status = m.watched ? (m.type === 'book' ? 'Read' : 'Watched') : '📋 Watchlist';
+          const rating = m.rating ? ` - ${m.rating}/10` : '';
+          let creatorText = '';
+          
+          if (m.type === 'movie' && m.movie?.director) {
+            creatorText = ` - Dir: ${m.movie.director}`;
+          } else if (m.type === 'book' && m.book?.author) {
+            creatorText = ` - Author: ${m.book.author}`;
+          } else if (m.type === 'tv_show' && m.tvShow?.network) {
+            creatorText = ` - ${m.tvShow.network}`;
+          }
+          
+          const typeEmoji = m.type === 'movie' ? '🎬' : m.type === 'book' ? '📚' : '📺';
+          
+          return `${typeEmoji} ${m.title}${m.year ? ` (${m.year})` : ''} - ${status}${rating}${creatorText}\n   ID: ${m.id}`;
+        }).join('\n\n');
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Found ${matches.length} result(s) for "${args.title}":\n\n${searchResults}`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error searching media: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            },
+          ],
+        };
+      }
+    }
+
+    case "update_media_by_title": {
+      try {
+        // Find media by title and type
+        const filters: any = {};
+        if (args.type) filters.type = args.type as 'movie' | 'book' | 'tv_show';
+        if (args.year) filters.year = args.year as number;
+        
+        const allMedia = await mediaDb.getMedia(filters);
+        const searchTerm = (args.title as string).toLowerCase();
+        
+        // Find exact or close matches
+        const exactMatches = allMedia.filter(m => 
+          m.title.toLowerCase() === searchTerm
+        );
+        
+        const partialMatches = allMedia.filter(m => 
+          m.title.toLowerCase().includes(searchTerm) && 
+          !exactMatches.some(exact => exact.id === m.id)
+        );
+        
+        let targetMedia;
+        
+        if (exactMatches.length === 1) {
+          targetMedia = exactMatches[0];
+        } else if (exactMatches.length === 0 && partialMatches.length === 1) {
+          targetMedia = partialMatches[0];
+        } else if (exactMatches.length > 1 || partialMatches.length > 1) {
+          const allMatches = [...exactMatches, ...partialMatches];
+          const matchList = allMatches.map(m => {
+            const typeEmoji = m.type === 'movie' ? '🎬' : m.type === 'book' ? '📚' : '📺';
+            return `${typeEmoji} ${m.title}${m.year ? ` (${m.year})` : ''} - ID: ${m.id}`;
+          }).join('\n');
+          
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Multiple matches found for "${args.title}". Please be more specific or use the exact ID:\n\n${matchList}`,
+              },
+            ],
+          };
+        } else {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `No media found matching "${args.title}". Use search_media to find available titles.`,
+              },
+            ],
+          };
+        }
+        
+        // Build update object
+        const updates: any = {};
+        if (args.rating !== undefined) updates.rating = args.rating as number;
+        if (args.watched !== undefined) updates.watched = args.watched as boolean;
+        if (args.notes !== undefined) updates.notes = args.notes as string;
+        if (args.likedAspects !== undefined) updates.likedAspects = args.likedAspects as string;
+        if (args.dislikedAspects !== undefined) updates.dislikedAspects = args.dislikedAspects as string;
+        if (args.mood !== undefined) updates.mood = args.mood as string;
+        
+        const updated = await mediaDb.updateMedia(targetMedia.id, updates);
+        
+        if (!updated) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Failed to update "${targetMedia.title}".`,
+              },
+            ],
+          };
+        }
+        
+        const updatedMedia = await mediaDb.getMediaById(targetMedia.id);
+        const ratingText = updatedMedia?.rating ? ` - ${updatedMedia.rating}/10` : '';
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Successfully updated "${updatedMedia?.title}"${ratingText}`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error updating media: ${error instanceof Error ? error.message : 'Unknown error'}`,
             },
           ],
         };
