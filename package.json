@@ -1,0 +1,31 @@
+{
+  "name": "mediasage",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch index.ts",
+    "start": "bun run index.ts",
+    "dev:http": "bun run --watch src/http-server.ts",
+    "start:http": "bun run src/http-server.ts",
+    "start:remote": "bun run simple-remote.ts",
+    "start:http-mcp": "bun run http-mcp-server.ts",
+    "start:simple-http": "bun run simple-http-mcp.ts"
+  },
+  "bin": {
+    "mediasage": "./index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "drizzle-kit": "^0.31.2"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.13.1",
+    "@types/sqlite3": "^5.1.0",
+    "drizzle-orm": "^0.44.2",
+    "sqlite3": "^5.1.7"
+  }
+}
