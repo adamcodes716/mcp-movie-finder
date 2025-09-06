@@ -1,41 +1,45 @@
 import { serve } from "bun";
 import { MovieUtils, SAMPLE_MOVIES, type Movie } from "./movie-utils.ts";
+import { MovieStore } from "./movie-store.ts";
 
 // Environment configuration
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY || "default-api-key-change-in-production";
 
-// Mock data for testing
-const mockMovies = [
-  { id: "1", title: "The Matrix", year: 1999, watched: true, rating: 9 },
-  { id: "2", title: "Inception", year: 2010, watched: true, rating: 8 },
-  { id: "3", title: "Blade Runner 2049", year: 2017, watched: false, rating: null }
-];
+// Initialize movie store with sample data and persistence
+const movieStore = new MovieStore(SAMPLE_MOVIES, true);
+
+// Initialize persistence asynchronously
+console.log("Initializing movie store with persistence...");
+await movieStore.initialize();
+console.log("Movie store initialized successfully!");
 
 // Simple MCP tool handlers
 const mcpHandlers = {
   list_movies: async (params: any) => {
+    const movies = movieStore.getMovies({
+      watchedOnly: params?.watched_only,
+      minRating: params?.min_rating
+    });
+    
     return {
       content: [
         {
           type: "text",
-          text: mockMovies.map(m => 
-            `• ${m.title} (${m.year}) - ${m.watched ? 'Watched' : 'Not watched'}${m.rating ? ` - ${m.rating}/10` : ''}`
-          ).join('\n')
+          text: movies.map(movie => MovieUtils.formatMovie(movie)).join('\n')
         }
       ]
     };
   },
 
   add_movie: async (params: any) => {
-    const newMovie = {
-      id: Date.now().toString(),
-      title: params?.title || "Unknown Movie",
-      year: params?.year || new Date().getFullYear(),
-      watched: params?.watched !== false,
-      rating: params?.rating || null
-    };
-    mockMovies.push(newMovie);
+    const newMovie = MovieUtils.createMovie(
+      params?.title || "Unknown Movie",
+      params?.year || new Date().getFullYear(),
+      params?.watched !== false,
+      params?.rating || null
+    );
+    await movieStore.addMovie(newMovie);
     
     return {
       content: [
@@ -48,11 +52,12 @@ const mcpHandlers = {
   },
 
   get_recommendations: async (params: any) => {
+    const allMovies = movieStore.getMovies();
     return {
       content: [
         {
           type: "text",
-          text: "Based on your watched movies, here are some recommendations:\n• The Dark Knight (2008)\n• Interstellar (2014)\n• Ex Machina (2014)"
+          text: MovieUtils.getRecommendations(allMovies)
         }
       ]
     };
@@ -60,9 +65,12 @@ const mcpHandlers = {
 
   update_movie: async (params: any) => {
     const movieId = params?.id;
-    const movie = mockMovies.find(m => m.id === movieId);
+    const updatedMovie = await movieStore.updateMovie(movieId, {
+      rating: params?.rating,
+      watched: params?.watched
+    });
     
-    if (!movie) {
+    if (!updatedMovie) {
       return {
         content: [
           {
@@ -73,14 +81,11 @@ const mcpHandlers = {
       };
     }
 
-    if (params?.rating !== undefined) movie.rating = params.rating;
-    if (params?.watched !== undefined) movie.watched = params.watched;
-
     return {
       content: [
         {
           type: "text",
-          text: `Updated movie: ${movie.title}`
+          text: `Updated movie: ${updatedMovie.title}`
         }
       ]
     };
@@ -111,7 +116,7 @@ const server = serve({
       return new Response(JSON.stringify({ 
         status: "ok", 
         service: "movie-rec-mcp-simple",
-        movies: mockMovies.length 
+        movies: movieStore.getCount() 
       }), {
         headers: { 
           "Content-Type": "application/json",
@@ -199,7 +204,7 @@ const server = serve({
 </head>
 <body>
     <h1>🎬 Simple Movie MCP Server</h1>
-    <div class="status">✅ Server is running with ${mockMovies.length} mock movies</div>
+    <div class="status">✅ Server is running with ${movieStore.getCount()} movies</div>
     
     <h2>Available Methods:</h2>
     <ul>
@@ -221,8 +226,8 @@ Content-Type: application/json
   "id": 1
 }</pre>
 
-    <h2>Current Mock Data:</h2>
-    <pre>${JSON.stringify(mockMovies, null, 2)}</pre>
+    <h2>Current Movie Data:</h2>
+    <pre>${JSON.stringify(movieStore.exportData(), null, 2)}</pre>
 </body>
 </html>`, {
         headers: { "Content-Type": "text/html" },
