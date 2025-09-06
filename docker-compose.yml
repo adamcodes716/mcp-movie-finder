@@ -9,6 +9,7 @@ services:
       - .env
     volumes:
       - mcp_data:/app/movies.db # Persist SQLite DB
+      - ./data:/app/data # Mount local data directory
     restart: unless-stopped
 
 volumes:

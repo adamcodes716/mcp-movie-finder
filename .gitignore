@@ -8,6 +8,10 @@ dist
 
 # code coverage
 coverage
+
+# local data storage
+data/
+*.json
 *.lcov
 
 # logs

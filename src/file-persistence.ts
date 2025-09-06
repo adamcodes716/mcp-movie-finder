@@ -4,8 +4,12 @@ import { type Movie } from "./movie-utils.ts";
 export class FilePersistence {
   private filePath: string;
   
-  constructor(filePath = "/app/data/movies.json") {
-    this.filePath = filePath;
+  constructor(filePath?: string) {
+    // Use Docker path if in container, local path otherwise
+    const defaultPath = process.env.NODE_ENV === 'production' || process.cwd().includes('/app') 
+      ? "/app/data/movies.json" 
+      : "./data/movies.json";
+    this.filePath = filePath || defaultPath;
   }
 
   // Load movies from file
