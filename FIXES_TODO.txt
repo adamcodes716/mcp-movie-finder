@@ -1,0 +1,2 @@
+2. Fixed 'ReadableStream is locked' error in src/sse-transport.ts by replacing getReader() with await request.text() for reading the request body.
+1. Fixed import and usage in src/http-server.ts: changed MovieDatabase to MediaDatabase to match the actual export in src/db/index.ts.

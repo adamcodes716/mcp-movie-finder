@@ -1,0 +1,16 @@
+version: '3.8'
+services:
+  app:
+    build: .
+    container_name: mcp-movie-finder
+    ports:
+      - "3002:3000"
+    env_file:
+      - .env
+    volumes:
+      - mcp_data:/app/movies.db # Persist SQLite DB
+    restart: unless-stopped
+
+volumes:
+  mcp_data:
+    driver: local

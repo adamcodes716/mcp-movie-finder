@@ -1,0 +1,51 @@
+{
+  "mcpServers": {
+    "Home Assistant": {
+      "command": "C://Users//amorgan//.local//bin//mcp-proxy.exe",
+      "args": [
+        "http://192.168.1.100:8123/mcp_server/sse"
+      ],
+      "env": {
+        "API_ACCESS_TOKEN": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI4OWQ5NTA2ODQyODg0OGU5YTNiOWQ5OWE4ZDNhZTA2MCIsImlhdCI6MTc1MzQ0ODU2NiwiZXhwIjoyMDY4ODA4NTY2fQ.2VlWTbKG27XAV4gjG1U01dVAvdhlE75XIehlyFHniGo"
+      }
+    },
+    "Home MCP Server": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://192.168.1.100:8100/mcp",
+        "--allow-http"
+      ]
+    },
+    "Movie Finder MCP": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:3002/mcp",
+        "--api-key",
+        "your-secure-api-key",
+        "--allow-http"
+      ]
+    }
+  },
+  "servers": [
+    {
+      "name": "Home Assistant",
+      "description": "Connects to Home Assistant's MCP server for smart home control",
+      "type": "mcp",
+      "enabled": true
+    },
+    {
+      "name": "Home MCP Server",
+      "description": "Custom MCP server for local automations and device state queries",
+      "type": "mcp",
+      "enabled": true
+    },
+    {
+      "name": "Movie Finder MCP",
+      "description": "Dockerized MCP Movie Finder server running on port 3002",
+      "type": "mcp",
+      "enabled": true
+    }
+  ]
+}

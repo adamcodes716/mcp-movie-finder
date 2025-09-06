@@ -1,5 +1,4 @@
 import { serve } from "bun";
-import { MovieUtils, SAMPLE_MOVIES, type Movie } from "./movie-utils.ts";
 
 // Environment configuration
 const PORT = process.env.PORT || 3000;

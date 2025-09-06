@@ -1,3 +1,16 @@
+
+
+## This app is forked from https://github.com/imjoshnewton/mediasage.git and the bulk of the work can be attributed to that engineer
+
+
+## pull upstream changes
+git remote add upstream https://github.com/imjoshnewton/mediasage.git    # this is a one-time command
+git fetch upstream
+git merge upstream/master
+
+## push changes to my repo
+git push --set-upstream origin master
+
 # MediaSage
 
 A Model Context Protocol (MCP) server that tracks movies, books, and TV shows, providing intelligent recommendations based on your preferences. Built with Bun, SQLite (via Drizzle ORM), and supports both local (stdio) and remote (HTTP/SSE) connections.

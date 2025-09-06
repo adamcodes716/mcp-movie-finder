@@ -24,27 +24,16 @@ export class SSEServerTransport implements Transport {
 
     // Read incoming messages from request body
     if (this.request.body) {
-      const reader = this.request.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (line.trim()) {
-              try {
-                const message = JSON.parse(line);
-                this.messageHandlers.forEach(handler => handler(message));
-              } catch (error) {
-                console.error("Failed to parse message:", error);
-              }
+        const bodyText = await this.request.text();
+        const lines = bodyText.split('\n');
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const message = JSON.parse(line);
+              this.messageHandlers.forEach(handler => handler(message));
+            } catch (error) {
+              console.error("Failed to parse message:", error);
             }
           }
         }
