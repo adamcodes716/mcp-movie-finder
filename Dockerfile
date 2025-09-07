@@ -17,6 +17,8 @@ EXPOSE 3000
 
 # Set environment variables (override in production as needed)
 ENV NODE_ENV=development
+ENV DATABASE_TYPE=sqlite
+ENV API_KEY=test-api-key-for-docker
 
-# Enable file watching for hot reload (HTTP dev mode)
-CMD ["bun", "run", "dev:http"]
+# Run our simplified read-only server
+CMD ["bun", "run", "src/simple-http-server.ts"]

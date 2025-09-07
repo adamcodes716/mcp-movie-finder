@@ -1,44 +1,26 @@
 import { serve } from "bun";
 import { MovieUtils, SAMPLE_MOVIES, type Movie } from "./movie-utils.ts";
-import { MediaDatabase } from "./db/index.ts";
+import { createMovieDatabase, type DatabaseAdapter } from './simple-movie-db.js';
 
 // Environment configuration
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY || "default-api-key-change-in-production";
+const DATABASE_TYPE = process.env.DATABASE_TYPE || 'sqlite';
 
-// Initialize database
-console.log("Initializing MediaDatabase...");
-const mediaDb = new MediaDatabase();
+// Initialize database adapter
+console.log("Initializing database adapter...");
+const dbAdapter: DatabaseAdapter = await createMovieDatabase();
 
-// Test database connection
-try {
-  console.log("Testing database connection...");
-  // Add a test movie to verify database works
-  const testId = Date.now().toString();
-  await mediaDb.addMedia({
-    id: testId,
-    type: 'movie',
-    title: 'Database Test Movie',
-    year: 2025,
-    watched: false,
-  });
-  console.log("✅ Database connection successful!");
-  
-  // Clean up test movie
-  // Note: We'd need a delete method for this, but it shows the database works
-  
-} catch (error) {
-  console.error("❌ Database connection failed:", error);
-  console.log("Falling back to simple file persistence...");
-}
-
-// Enhanced MCP tool handlers using real database
+// Enhanced MCP tool handlers using database adapter
 const mcpHandlers = {
   list_movies: async (params: any) => {
     try {
-      const movies = await mediaDb.getMovies({
+      const movies = await dbAdapter.getMovies({
         watchedOnly: params?.watched_only,
         minRating: params?.min_rating,
+        genre: params?.genre,
+        director: params?.director,
+        year: params?.year,
       });
       
       if (movies.length === 0) {
@@ -52,7 +34,7 @@ const mcpHandlers = {
         };
       }
       
-      const movieList = movies.map(movie => 
+      const movieList = movies.map((movie: any) => 
         `• ${movie.title}${movie.year ? ` (${movie.year})` : ''} - ${movie.watched ? 'Watched' : 'Not watched'}${movie.rating ? ` - ${movie.rating}/10` : ''}${movie.notes ? ` - "${movie.notes}"` : ''}`
       ).join('\n');
       
@@ -78,32 +60,24 @@ const mcpHandlers = {
 
   add_movie: async (params: any) => {
     try {
-      const id = Date.now().toString();
-      const mediaData = {
-        id,
-        type: 'movie' as const,
+      const movieData = {
         title: params?.title as string,
         year: params?.year as number | undefined,
+        director: params?.director as string | undefined,
+        cast: params?.cast ? (Array.isArray(params.cast) ? params.cast.join(', ') : params.cast) : undefined,
+        genre: params?.genre as string | undefined,
         watched: params?.watched !== false,
         rating: params?.rating as number | undefined,
-        dateWatched: params?.watched !== false ? new Date().toISOString() : undefined,
         notes: params?.notes as string | undefined,
       };
       
-      const movieData = { 
-        mediaId: id,
-        director: params?.director as string | undefined,
-        cast: params?.cast ? JSON.stringify(params.cast) : undefined,
-        runtime: params?.runtime as number | undefined,
-      };
-      
-      await mediaDb.addMedia(mediaData, movieData);
+      const newId = await dbAdapter.addMovie(movieData);
       
       return {
         content: [
           {
             type: "text",
-            text: `Added movie: ${mediaData.title}`,
+            text: `Added movie: ${movieData.title}`,
           },
         ],
       };
@@ -121,7 +95,45 @@ const mcpHandlers = {
 
   get_recommendations: async (params: any) => {
     try {
-      const likedMovies = await mediaDb.getHighRatedMedia('movie');
+      const recommendations = await dbAdapter.getRecommendations();
+      
+      if (recommendations.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "No recommendations available yet. Add and rate some movies you've watched first!",
+            },
+          ],
+        };
+      }
+      
+      const dbTypeText = DATABASE_TYPE === 'mysql' ? 'your network MySQL database' : 'local SQLite database';
+      const recommendationText = `Based on your highly rated movies from ${dbTypeText}:\n\n` +
+        recommendations.map((movie, index) => 
+          `${index + 1}. ${movie.title} (${movie.year || 'Unknown'}) - Rating: ${movie.rating || 'N/A'}/10`
+        ).join('\n') + 
+        "\n\nThese are movies you've rated highly!";
+        
+      return {
+        content: [
+          {
+            type: "text",
+            text: recommendationText,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Failed to get recommendations: ${error}`,
+          },
+        ],
+      };
+    }
+  },
       
       if (likedMovies.length === 0) {
         return {
@@ -134,11 +146,12 @@ const mcpHandlers = {
         };
       }
       
-      const recommendations = `Based on your preferences (you enjoyed ${likedMovies.slice(0, 3).map((m: any) => m.title).join(', ')}), here are some recommendations:\n\n` +
+      const dbTypeText = DATABASE_TYPE === 'mysql' ? 'your network MySQL database' : 'local SQLite database';
+      const recommendations = `Based on your preferences from ${dbTypeText} (you enjoyed ${likedMovies.slice(0, 3).map((m: any) => m.title).join(', ')}), here are some recommendations:\n\n` +
         "1. Consider similar genres and directors\n" +
         "2. Look for movies from the same time period\n" +
         "3. Check out sequels or related films\n\n" +
-        "Note: This is using the full database with sophisticated recommendation capabilities!";
+        "Note: This is using your existing movie collection for recommendations!";
         
       return {
         content: [
@@ -162,10 +175,10 @@ const mcpHandlers = {
 
   update_movie: async (params: any) => {
     try {
-      const updated = await mediaDb.updateMedia(params?.id as string, {
-        rating: params?.rating as number | undefined,
-        watched: params?.watched as boolean | undefined,
-        notes: params?.notes as string | undefined,
+      const updated = await dbAdapter.updateMovie(params?.id as string, {
+        rating: params?.rating,
+        watched: params?.watched,
+        notes: params?.notes,
       });
       
       if (!updated) {
@@ -179,12 +192,12 @@ const mcpHandlers = {
         };
       }
       
-      const movie = await mediaDb.getMediaById(params?.id as string);
+      const updatedMovie = await dbAdapter.updateMovie(params?.id as string, params);
       return {
         content: [
           {
             type: "text",
-            text: `Updated movie: ${movie?.title || 'Unknown'}`,
+            text: `Updated movie: ${updatedMovie?.title || 'Unknown'}`,
           },
         ],
       };
@@ -222,12 +235,13 @@ const server = serve({
 
     // Health check
     if (url.pathname === "/health") {
-      const movieCount = await mediaDb.getMovies({}).then(movies => movies.length).catch(() => 0);
+      const movieCount = await dbAdapter.getMovies({}).then(movies => movies.length).catch(() => 0);
       return new Response(JSON.stringify({ 
         status: "ok", 
-        service: "movie-rec-mcp-database",
+        service: "movie-rec-mcp-hybrid",
         movies: movieCount,
-        database: "SQLite with Drizzle ORM"
+        database: DATABASE_TYPE === 'mysql' ? "MySQL Network Database" : "SQLite Local Database",
+        databaseType: DATABASE_TYPE
       }), {
         headers: { 
           "Content-Type": "application/json",
@@ -302,28 +316,32 @@ const server = serve({
 
     // Info page
     if (url.pathname === "/" && request.method === "GET") {
-      const movieCount = await mediaDb.getMovies({}).then(movies => movies.length).catch(() => 0);
+      const movieCount = await dbAdapter.getMovies({}).then(movies => movies.length).catch(() => 0);
+      const dbTypeDisplay = DATABASE_TYPE === 'mysql' ? 'MySQL Network Database' : 'SQLite Local Database';
+      
       return new Response(`
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Movie MCP Server with Database</title>
+    <title>Hybrid Movie MCP Server</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; }
         pre { background: #f4f4f4; padding: 10px; border-radius: 5px; }
         .status { background: #d4edda; color: #155724; padding: 10px; border-radius: 5px; margin: 20px 0; }
+        .db-info { background: #e7f3ff; color: #004085; padding: 10px; border-radius: 5px; margin: 10px 0; }
     </style>
 </head>
 <body>
-    <h1>🎬 Movie MCP Server with Database</h1>
-    <div class="status">✅ Server running with SQLite database (${movieCount} movies)</div>
+    <h1>🎬 Hybrid Movie MCP Server</h1>
+    <div class="status">✅ Server running with ${movieCount} movies</div>
+    <div class="db-info">📊 Using: ${dbTypeDisplay} (DATABASE_TYPE=${DATABASE_TYPE})</div>
     
     <h2>Database Features:</h2>
     <ul>
-        <li>SQLite with Drizzle ORM</li>
-        <li>Support for Movies, Books, and TV Shows</li>
-        <li>Advanced metadata and recommendations</li>
-        <li>Persistent storage</li>
+        <li>🔄 Hybrid mode: Switch between SQLite local and MySQL network</li>
+        <li>🗃️ Current: ${dbTypeDisplay}</li>
+        <li>⚙️ Configure via DATABASE_TYPE environment variable</li>
+        <li>🔒 Preserves original code with database abstraction</li>
     </ul>
     
     <h2>Available Methods:</h2>
@@ -345,6 +363,12 @@ Content-Type: application/json
   "params": {},
   "id": 1
 }</pre>
+    
+    <h2>Switch Database:</h2>
+    <p>To use your network MySQL database:</p>
+    <pre>DATABASE_TYPE=mysql</pre>
+    <p>To use local SQLite database:</p>
+    <pre>DATABASE_TYPE=sqlite</pre>
 </body>
 </html>`, {
         headers: { "Content-Type": "text/html" },
@@ -358,13 +382,15 @@ Content-Type: application/json
 console.log(`🚀 Movie MCP server with database running on http://localhost:${PORT}`);
 console.log(`📡 MCP endpoint: http://localhost:${PORT}/mcp`);
 console.log(`🔍 Health check: http://localhost:${PORT}/health`);
-console.log(`🗃️ Database: SQLite with Drizzle ORM`);
+console.log(`🗃️ Database: ${DATABASE_TYPE === 'mysql' ? 'MySQL Network' : 'SQLite Local'} (DATABASE_TYPE=${DATABASE_TYPE})`);
 console.log(`🔑 API Key: ${API_KEY}`);
 
 // Graceful shutdown
-process.on("SIGINT", () => {
+process.on("SIGINT", async () => {
   console.log("\n🛑 Shutting down server...");
-  mediaDb.close();
+  if (dbAdapter && 'close' in dbAdapter) {
+    await (dbAdapter as any).close();
+  }
   server.stop();
   process.exit(0);
 });

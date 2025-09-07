@@ -26,6 +26,7 @@
     "@modelcontextprotocol/sdk": "^1.13.1",
     "@types/sqlite3": "^5.1.0",
     "drizzle-orm": "^0.44.2",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.1.7",
+    "mysql2": "^3.11.0"
   }
 }
